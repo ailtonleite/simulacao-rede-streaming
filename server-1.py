@@ -1,11 +1,24 @@
 from flask import Flask, send_from_directory
+import os
+import ffmpeg
 
 app = Flask(__name__)
 
-@app.route('/hls/<path:filename>')
-def stream_video(filename):
+@app.route('/hls/<output_folder>/<path:filename>')
+def stream_video(filename, output_folder):
     #Receber um video mp4 e segmentar usando HLS
-    return
+    os.makedirs(output_folder, exist_ok=True)
+    output_playlist = os.path.join(output_folder, "stream.m3u8")
+    
+    ffmpeg.input(filename).output(
+        output_playlist,
+        codec='copy',
+        start_number=0,
+        hls_time=5,
+        hls_list_size=0,
+        format='hls'
+    ).run()
+    return f"Playlist gerada em: {output_playlist}"
 
 @app.route('/rtsp/<path:filename>')
 def stream_video(filename):
