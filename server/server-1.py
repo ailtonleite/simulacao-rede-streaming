@@ -32,6 +32,32 @@ def stream_video(filename):
     return send_from_directory('cache_videos/', filename)
 
 
+# http://localhost:5000/dash/<path:filename>
+@app.route('/dash/<path:filename>')
+def segment_dash(filename):
+    filename = "server/" + filename
+    output_folder = "server/cache_videos/dash/"
+    
+    os.makedirs(output_folder, exist_ok=True)
+    output_manifest = os.path.join(output_folder, "stream.mpd")
+
+    ffmpeg.input(filename).output(
+        output_manifest,
+        format='dash',
+        use_timeline=1,
+        use_template=1,
+        init_seg_name='init-$RepresentationID$.mp4',
+        media_seg_name='chunk-$RepresentationID$-$Number$.m4s'
+    ).run()
+
+    return f"Manifesto DASH gerado em: {output_manifest}"
+
+# http://localhost:5000/dash_stream/stream.mpd
+@app.route('/dash_stream/<path:filename>')
+def stream_dash(filename):
+    return send_from_directory('cache_videos/', filename)
+
+
 # http://localhost:5000/clean_cache
 @app.route('/clean_cache')
 def clean_cache():

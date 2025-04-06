@@ -3,19 +3,28 @@ import time
 import numpy as np
 import requests
 
-MP4_URL = "http://localhost:5000/hls/video.mp4"
+HLS_URL = "http://localhost:5000/hls/video.mp4"
 VIDEO_URL = "http://localhost:5000/stream/stream.m3u8"
+DASH_URL = "http://localhost:5000/dash/video.mp4"
+DASH_MANIFEST_URL = "http://localhost:5000/dash_stream/stream.mpd"
 
 
-# Em construção...
 def segment_hls():
     try:
-        response = requests.get(MP4_URL)
+        response = requests.get(HLS_URL)
         response.raise_for_status()
         print("Video segmentado com sucesso!")
 
     except requests.exceptions.RequestException as e:
         print(f"Erro ao acessar ou segmentar o vídeo: {e}")
+
+def segment_dash():
+    try:
+        response = requests.get(DASH_URL)
+        response.raise_for_status()
+        print("Video segmentado em DASH com sucesso!")
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao segmentar o vídeo com DASH: {e}")
 
 def stream_video_hls():
     try:
@@ -76,6 +85,60 @@ def stream_video_hls():
     except Exception as e:
         print(f"Erro ao processar o vídeo: {e}")
 
+def stream_video_dash():
+    try:
+        cap = cv2.VideoCapture(DASH_MANIFEST_URL)
+
+        frame_count = 0
+        start_time = time.time()
+        consecutive_failures = 0
+        latency_total = 0.0
+        first_frame_time = None
+
+        while cap.isOpened():
+            t1 = time.time()
+            ret, frame = cap.read()
+            t2 = time.time()
+
+            if not ret:
+                consecutive_failures += 1
+                if consecutive_failures > 50:
+                    print("Fim do vídeo (DASH) detectado. Encerrando...")
+                    break
+                continue
+
+            consecutive_failures = 0
+            frame_count += 1
+
+            if first_frame_time is None:
+                first_frame_time = t2 - start_time
+                print(f"Latência de inicialização (DASH): {first_frame_time:.3f} segundos")
+
+            frame_latency = t2 - t1
+            latency_total += frame_latency
+
+            cv2.imshow('Streaming DASH', frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                print("Usuário encerrou o streaming DASH.")
+                break
+
+        cap.release()
+        cv2.destroyAllWindows()
+
+        total_time = time.time() - start_time
+        fps = frame_count / total_time if total_time > 0 else 0
+        avg_latency = latency_total / frame_count if frame_count > 0 else 0
+        avg_latency *= 1000
+
+        print("")
+        print(f"Frames renderizados: {frame_count}")
+        print(f"Tempo de redenrização: {total_time:.2f}")
+        print(f"Média de FPS (DASH): {fps:.2f}")
+        print(f"Latência média por frame: {avg_latency:.2f} ms")
+
+    except Exception as e:
+        print(f"Erro no streaming DASH: {e}")
 
 def clean_cache():
     try:
@@ -92,7 +155,7 @@ def run():
     while True:
         print("\nMenu:")
         print("1. Stream video - HLS")
-        print("2. ...")
+        print("2. Stream video - DASH")
         print("3. ...")
         print("4. ...")
         print("5. ...")      
@@ -105,7 +168,10 @@ def run():
             print("Download do video...")
             stream_video_hls()
         elif escolha == "2":
-            return
+            print("Segmentando video para DASH...")
+            segment_dash()
+            print("Download do video DASH...")
+            stream_video_dash()
         elif escolha == "3":
             return
         elif escolha == "4":
