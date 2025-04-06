@@ -55,7 +55,7 @@ def segment_dash(filename):
 # http://localhost:5000/dash_stream/stream.mpd
 @app.route('/dash_stream/<path:filename>')
 def stream_dash(filename):
-    return send_from_directory('cache_videos/', filename)
+    return send_from_directory('cache_videos/dash/', filename)
 
 
 # http://localhost:5000/clean_cache
