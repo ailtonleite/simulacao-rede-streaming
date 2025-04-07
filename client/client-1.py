@@ -7,10 +7,12 @@ import vlc
 import tempfile
 import xml.etree.ElementTree as ET
 from urllib.parse import urljoin
+import matplotlib.pyplot as plt
+from collections import defaultdict
 
-HLS_URL = "http://localhost:5000/hls/video.mp4"
+HLS_URL = "http://localhost:5000/hls/video_longo.mp4"
 VIDEO_URL = "http://localhost:5000/stream/stream.m3u8"
-DASH_URL = "http://localhost:5000/dash/video.mp4"
+DASH_URL = "http://localhost:5000/dash/video_longo.mp4"
 DASH_MANIFEST_URL = "http://localhost:5000/dash_stream/stream.mpd"
 
 
@@ -34,40 +36,53 @@ def segment_dash():
 def stream_video_hls():
     try:
         cap = cv2.VideoCapture(VIDEO_URL)
-       
+
         frame_count = 0
         start_time = time.time()
         consecutive_failures = 0
         latency_total = 0.0
+        buffering_time_total = 0.0
+        stall_events = 0
         first_frame_time = None
+        buffering_start = None
+        bitrate_dict = defaultdict(int)
 
         while cap.isOpened():
-            t1 = time.time()  # início da leitura
+            t1 = time.time()
             ret, frame = cap.read()
-            t2 = time.time()  # fim da leitura
+            t2 = time.time()
 
             if not ret:
                 consecutive_failures += 1
+                if buffering_start is None:
+                    buffering_start = time.time()
+                    stall_events += 1
+
                 if consecutive_failures > 50:
                     print("Fim do vídeo detectado. Encerrando...")
                     break
                 continue
+            else:
+                if buffering_start is not None:
+                    buffering_time_total += time.time() - buffering_start
+                    buffering_start = None
 
-            consecutive_failures = 0  # Reseta falhas se o frame for válido
+            consecutive_failures = 0
             frame_count += 1
 
-            # Marcar latência do primeiro frame
             if first_frame_time is None:
                 first_frame_time = t2 - start_time
                 print(f"Latência de inicialização: {first_frame_time:.3f} segundos")
 
-            # Acumula a latência de leitura
             frame_latency = t2 - t1
             latency_total += frame_latency
 
-            cv2.imshow('Streaming', frame)
+            # Bitrate (por segundo)
+            elapsed_sec = int(t2 - start_time)
+            frame_bits = frame.nbytes * 8
+            bitrate_dict[elapsed_sec] += frame_bits
 
-            # Aguarda a tecla 'q' para sair
+            cv2.imshow('Streaming', frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("Usuário encerrou o streaming.")
                 break
@@ -75,7 +90,6 @@ def stream_video_hls():
         cap.release()
         cv2.destroyAllWindows()
 
-        # Evitar erro de divisão por zero se o vídeo for muito curto
         total_time = time.time() - start_time
         fps = frame_count / total_time if total_time > 0 else 0
         avg_latency = latency_total / frame_count if frame_count > 0 else 0
@@ -84,11 +98,28 @@ def stream_video_hls():
         print("")
         print(f"Frames renderizados: {frame_count}")
         print(f"Tempo de redenrização: {total_time:.2f}")
-        print(f"Média de Frames por segundo renderizados: {fps:.2f}")
+        print(f"Média de FPS: {fps:.2f}")
         print(f"Latência média por frame: {avg_latency:.2f} ms")
+        print(f"Eventos de buffering: {stall_events}")
+        print(f"Tempo total em buffering: {buffering_time_total:.2f} segundos")
+
+        # Plot do gráfico de bitrate
+        segundos = sorted(bitrate_dict.keys())
+        bitrates = [bitrate_dict[s] / 1_000 for s in segundos]  # kbps
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(segundos, bitrates, marker='o', linestyle='-')
+        plt.title('Taxa de Bits por Segundo (HLS)')
+        plt.xlabel('Tempo (s)')
+        plt.ylabel('Bitrate (kbps)')
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
 
     except Exception as e:
         print(f"Erro ao processar o vídeo: {e}")
+
+
 
 def gerar_segmentos_do_template(mpd_url):
     response = requests.get(mpd_url)
@@ -144,6 +175,9 @@ def concatenar_segmentos_em_arquivo(segmentos):
                 print(f"Erro ao baixar segmento: {url} - Código {r.status_code}")
     return tmp_file.name
 
+import matplotlib.pyplot as plt
+from collections import defaultdict
+
 def stream_video_dash():
     try:
         segmentos = gerar_segmentos_do_template(DASH_MANIFEST_URL)
@@ -155,7 +189,11 @@ def stream_video_dash():
         start_time = time.time()
         consecutive_failures = 0
         latency_total = 0.0
+        buffering_time_total = 0.0
+        stall_events = 0
         first_frame_time = None
+        buffering_start = None
+        bitrate_dict = defaultdict(int)
 
         while cap.isOpened():
             t1 = time.time()
@@ -164,10 +202,18 @@ def stream_video_dash():
 
             if not ret:
                 consecutive_failures += 1
+                if buffering_start is None:
+                    buffering_start = time.time()
+                    stall_events += 1
+
                 if consecutive_failures > 50:
                     print("Fim do vídeo (DASH) detectado. Encerrando...")
                     break
                 continue
+            else:
+                if buffering_start is not None:
+                    buffering_time_total += time.time() - buffering_start
+                    buffering_start = None
 
             consecutive_failures = 0
             frame_count += 1
@@ -179,8 +225,12 @@ def stream_video_dash():
             frame_latency = t2 - t1
             latency_total += frame_latency
 
-            cv2.imshow('Streaming DASH', frame)
+            # Bitrate (por segundo)
+            elapsed_sec = int(t2 - start_time)
+            frame_bits = frame.nbytes * 8
+            bitrate_dict[elapsed_sec] += frame_bits
 
+            cv2.imshow('Streaming DASH', frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("Usuário encerrou o streaming DASH.")
                 break
@@ -199,9 +249,26 @@ def stream_video_dash():
         print(f"Tempo de redenrização: {total_time:.2f}")
         print(f"Média de FPS (DASH): {fps:.2f}")
         print(f"Latência média por frame: {avg_latency:.2f} ms")
+        print(f"Eventos de buffering: {stall_events}")
+        print(f"Tempo total em buffering: {buffering_time_total:.2f} segundos")
+
+        # Plot do gráfico de bitrate
+        segundos = sorted(bitrate_dict.keys())
+        bitrates = [bitrate_dict[s] / 1_000 for s in segundos]  # kbps
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(segundos, bitrates, marker='o', linestyle='-')
+        plt.title('Taxa de Bits por Segundo (DASH)')
+        plt.xlabel('Tempo (s)')
+        plt.ylabel('Bitrate (kbps)')
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
 
     except Exception as e:
         print(f"Erro no streaming DASH: {e}")
+
+
 
 def clean_cache():
     try:
@@ -218,10 +285,8 @@ def run():
     while True:
         print("\nMenu:")
         print("1. Stream video - HLS")
-        print("2. Segmenta video - DASH")
-        print("3. Stream video - DASH")
-        print("4. ...")
-        print("5. ...")      
+        print("2. Stream video - DASH")
+        print("3. ...")   
         print("0. Sair")
         escolha = input("Escolha uma opção: ")
 
@@ -233,14 +298,9 @@ def run():
         elif escolha == "2":
             print("Segmentando video para DASH...")
             segment_dash()
-            # print("Download do video DASH...")
-            # stream_video_dash()
-        elif escolha == "3":
             print("Download do video DASH...")
             stream_video_dash()
-        elif escolha == "4":
-            return
-        elif escolha == "5":
+        elif escolha == "3":
             return
         elif escolha == "0":
             print("Limpando cache e encerrando...")
