@@ -7,7 +7,6 @@ MP4_URL = "http://localhost:5000/hls/video.mp4"
 VIDEO_URL = "http://localhost:5000/stream/stream.m3u8"
 
 
-# Em construção...
 def segment_hls():
     try:
         response = requests.get(MP4_URL)
